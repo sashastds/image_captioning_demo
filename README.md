@@ -13,7 +13,7 @@
 
 ```virtualenv --python python3.6 icd_venv```
 
-or, if you have anaconda
+####### or, if you have anaconda
 
 ```conda create -n icd_venv python=3.6```
 
@@ -21,8 +21,7 @@ or, if you have anaconda
 
 ```source icd_venv/bin/activate```
 
-or, if you have anaconda
-
+####### or, if you have anaconda
 ```conda activate icd_venv```
 
 ###### install the requirements
