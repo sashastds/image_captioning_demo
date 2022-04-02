@@ -33,7 +33,7 @@
 
 ```streamlit run app.py```
 
-##### go to the generated link / feed it images / have fun
+##### go to the generated link / feed some images / have fun
 
 
 
