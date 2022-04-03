@@ -5,9 +5,17 @@ from torchvision.models.inception import Inception3
 from warnings import warn
 import numpy as np
 
+
 class CaptionNet(nn.Module):
-    def __init__(self, vocab_size, emb_dim = 128, rnn_units = 256, n_layers = 1,
-                 cnn_feature_size = 2048, padding_idx = None):
+    def __init__(
+        self,
+        vocab_size,
+        emb_dim=128,
+        rnn_units=256,
+        n_layers=1,
+        cnn_feature_size=2048,
+        padding_idx=None,
+    ):
         super(self.__class__, self).__init__()
         self.vocab_size = vocab_size
         self.emb_dim = emb_dim
@@ -15,31 +23,30 @@ class CaptionNet(nn.Module):
         self.n_layers = n_layers
         self.cnn_feature_size = cnn_feature_size
         self.padding_idx = padding_idx
-        
-        # два линейных слоя, которые будут из векторов, полученных на выходе Inseption, 
-        # получать начальные состояния h0 и c0 LSTM-ки, которую далее будем 
-        # разворачивать во времени и генерить ею текст
+
+        # two linear layers, creating h0 и c0 from Inseption outputs
         self.cnn_to_h0 = nn.Linear(self.cnn_feature_size, self.rnn_units)
         self.cnn_to_c0 = nn.Linear(self.cnn_feature_size, self.rnn_units)
-        
-        # вот теперь recurrent part
+
         # embedding for input tokens
-        self.embedding = nn.Embedding(self.vocab_size, self.emb_dim, padding_idx = self.padding_idx)   
-            
-        # стакаем LSTM-слои (1 или более)
-        self.rnn = nn.LSTM(self.emb_dim, self.rnn_units, self.n_layers,  batch_first=True) #(lstm embd, hid, layers)
-            
-        # линейный слой для получения логитов
+        self.embedding = nn.Embedding(
+            self.vocab_size, self.emb_dim, padding_idx=self.padding_idx
+        )
+
+        # creating LSTM-layers (1 or more)
+        self.rnn = nn.LSTM(
+            self.emb_dim, self.rnn_units, self.n_layers, batch_first=True
+        )  # (lstm embd, hid, layers)
+
+        # linear layer for logits
         self.out = nn.Linear(self.rnn_units, self.vocab_size)
 
     def forward(self, image_vectors, captions_ix):
-        """ 
-        Apply the network in training mode. 
-        :param image_vectors: torch tensor, содержаший выходы inсeption. Те, из которых будем генерить текст
-                shape: [batch, cnn_feature_size]
-        :param captions_ix: 
-                таргет описания картинок в виде матрицы  [batch, caption_length]
-        :returns: логиты для сгенерированного текста описания, shape: [batch, word_i, vocab_size]
+        """
+        applies the network in training mode.
+        :param image_vectors: torch tensors with inсeption outputs based on which descriptions will be created, shape: [batch, cnn_feature_size]
+        :param captions_ix: target captions as matrix, shape: [batch, caption_length]
+        :returns: logits, shape: [batch, word_i, vocab_size]
         """
         initial_cell = self.cnn_to_c0(image_vectors)
         initial_hid = self.cnn_to_h0(image_vectors)
@@ -49,20 +56,24 @@ class CaptionNet(nn.Module):
         # 2. скормим LSTM captions_emb
         # 3. посчитаем логиты из выхода LSTM
 
-        captions_emb = self.embedding(captions_ix) # [batch, caption_length, emb_dim]
+        captions_emb = self.embedding(captions_ix)  # [batch, caption_length, emb_dim]
 
-        ### ! this might be different when num_layers > 1
-        rnn_output, (hidden, cell) = self.rnn(captions_emb, (initial_cell.unsqueeze(0), initial_hid.unsqueeze(0))) # shape: [batch, caption_length, lstm_units]
+        ### !this might be different when num_layers > 1!
+        rnn_output, (hidden, cell) = self.rnn(
+            captions_emb, (initial_cell.unsqueeze(0), initial_hid.unsqueeze(0))
+        )  # shape: [batch, caption_length, lstm_units]
         ### RETROSPECTIVE NOTE: here above i actually changed initial_cell and initial_hid ordering on accident
-        ### but they have the same dim and projected from the same vector, and it feed the whole sequence here, so i do not mix them in every single step === it doesn't actually matter
+        ### but they have the same dim and projected from the same vector
+        ### and it feeds the whole sequence here, so i do not mix them in every single step === it doesn't actually matter
         ### below when working with attention it is fixed
         logits = self.out(rnn_output)
-        
-        return logits        
 
-# class BeheadedInception3(nn.Module):
+        return logits
+
+
 class BeheadedInception3(Inception3):
-    """ Like torchvision.models.inception.Inception3 but the head goes separately """
+    """like torchvision.models.inception.Inception3 but the head goes separately"""
+
     def forward(self, x):
         if self.transform_input:
             x = x.clone()
@@ -97,8 +108,14 @@ class BeheadedInception3(Inception3):
         x = self.fc(x)
         # 1000 (num_classes)
         return x_for_attn, x_for_capt, x
-        
+
+
 class PseudoInception(nn.Module):
-    """ Like torchvision.models.inception.Inception3 but fake))))"""
+    """like torchvision.models.inception.Inception3 but fake"""
+
     def forward(self, x):
-        return None, torch.tensor(np.random.random(size = (1, 2048)),dtype=torch.float32), None
+        return (
+            None,
+            torch.tensor(np.random.random(size=(1, 2048)), dtype=torch.float32),
+            None,
+        )

@@ -5,6 +5,7 @@ import gc
 import warnings
 import pickle
 import streamlit as st
+from pathlib import Path
 
 from caption_utils import (
     download_file_from_google_drive,
@@ -14,59 +15,71 @@ from caption_utils import (
     get_captions,
 )
 
+
+### GDRIVE IDS
+CAPTION_MODEL_ID = "1fgnUGsS1bl_lZk_cZP-FjJ1GwS5Sr4A7"
+INCEPTION_ID = "1vBILINRhOD6FhWJvY-sueiOmmD0HYrnm"
+W2I_ID = "1h_C_IOPnmpLiGzgzrF1KOeS7QRe-oXAf"
+I2W_ID = "1dD4HuQPDhKCRAxaPsYa3YnWFY2ZG3WgG"
+SPEC_TOKENS_ID = "1nf4NNcr92QRdHqg1Lzw3AB-TEDYndfr2"
+
 ### PATHS
-UTILITIES_PATH = "./utilities/"
-DATA_PATH = "./data/"
+UTILITIES_PATH = Path("./utilities/")
 
-### PATHS TO MODELS
-CAPTION_MODEL_PATH = UTILITIES_PATH + "caption_net.pth"
-CAPTION_MODEL_GDRIVE_ID = "1fgnUGsS1bl_lZk_cZP-FjJ1GwS5Sr4A7"
-INCEPTION_PATH = UTILITIES_PATH + "bh_inception.pth"
-INCEPTION_GDRIVE_ID = "1vBILINRhOD6FhWJvY-sueiOmmD0HYrnm"
+CAPTION_MODEL_PATH = UTILITIES_PATH / "caption_net.pth"
+INCEPTION_PATH = UTILITIES_PATH / "bh_inception.pth"
+W2I_PATH = UTILITIES_PATH / "word2idx.pkl"
+I2W_PATH = UTILITIES_PATH / "idx2word.pth"
+SPEC_TOKENS_PATH = UTILITIES_PATH / "spec_tokens.pth"
 
-TMP_DIR = UTILITIES_PATH + "/tmp/"
-TMP_IMG_PATH = TMP_DIR + "img.jpg"
+TMP_DIR = UTILITIES_PATH / "tmp/"
+TMP_IMG_PATH = TMP_DIR / "img.jpg"
 
 new_image = False
 
 st.set_page_config(
-    page_title="Small, but awesome image captioning tool demo",
+    page_title="Small, but awesome image captioning demo",
     page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded",
 )
-st.title("Image Captioning Tool Demo\nSmall, but awesome")
+st.title("Image Captioning Demo\nSmall, but awesome")
 
 
 @st.cache(suppress_st_warning=True, allow_output_mutation=True, show_spinner=False)
-def instantiate(download=False, pseudo_inception=False):
+def instantiate(pseudo_inception=False):
 
-    with open(UTILITIES_PATH + "word2idx.pkl", "rb") as f:
+    if not os.path.exists(UTILITIES_PATH):
+        os.mkdir(UTILITIES_PATH)
+        
+    message_slot = st.empty()
+    message_slot.info("downloading models, this might take some time..")
+    for g_id, p in zip(
+        [CAPTION_MODEL_ID, INCEPTION_ID, W2I_ID, I2W_ID, SPEC_TOKENS_ID], 
+        [CAPTION_MODEL_PATH, INCEPTION_PATH, W2I_PATH, I2W_PATH, SPEC_TOKENS_PATH]
+    ):
+        if not os.path.exists(p):
+            download_file_from_google_drive(g_id, p)
+            
+
+    with open(W2I_PATH, "rb") as f:
         word2idx = pickle.load(f)
-    with open(UTILITIES_PATH + "idx2word.pkl", "rb") as f:
+    with open(I2W_PATH, "rb") as f:
         idx2word = pickle.load(f)
-    with open(UTILITIES_PATH + "spec_tokens.pkl", "rb") as f:
+    with open(SPEC_TOKENS_PATH, "rb") as f:
         spec_tokens = pickle.load(f)
+        
     BOS_TOKEN, EOS_TOKEN, PAD_TOKEN, UNK_TOKEN = (
         spec_tokens[x] for x in ["BOS_token", "EOS_token", "PAD_token", "UNK_token"]
     )
+    
     BOS_IDX, EOS_IDX, PAD_IDX, UNK_IDX = (
         word2idx[spec_tokens[x]]
         for x in ["BOS_token", "EOS_token", "PAD_token", "UNK_token"]
     )
+    
     VOCAB_SIZE = len(word2idx)
-
-    if not os.path.exists(UTILITIES_PATH):
-        os.mkdir(UTILITIES_PATH)
-    message_slot = st.empty()
-    if download and (
-        not os.path.exists(CAPTION_MODEL_PATH) or not os.path.exists(INCEPTION_PATH)
-    ):
-        message_slot.info("downloading models from web, this might take some time..")
-        if not os.path.exists(CAPTION_MODEL_PATH):
-            download_file_from_google_drive(CAPTION_MODEL_GDRIVE_ID, CAPTION_MODEL_PATH)
-        if not os.path.exists(INCEPTION_PATH):
-            download_file_from_google_drive(INCEPTION_GDRIVE_ID, INCEPTION_PATH)
+            
     with warnings.catch_warnings():
         message_slot.info("initializing models, please, wait a little..")
         warnings.simplefilter("ignore", FutureWarning)
@@ -74,9 +87,9 @@ def instantiate(download=False, pseudo_inception=False):
             INCEPTION_PATH, CAPTION_MODEL_PATH, VOCAB_SIZE, PAD_IDX
         )
         message_slot.empty()
-    EXCLUDE_FROM_PREDICTION = [BOS_IDX, PAD_IDX, UNK_IDX]
+    exclude_from_captions = [BOS_IDX, PAD_IDX, UNK_IDX]
 
-    return inception, caption_model, idx2word, BOS_IDX, EOS_IDX, EXCLUDE_FROM_PREDICTION
+    return inception, caption_model, idx2word, BOS_IDX, EOS_IDX, exclude_from_captions
 
 
 @st.cache(suppress_st_warning=True, ttl=3600, max_entries=1, show_spinner=False)
@@ -93,22 +106,20 @@ def load_image(img):
             os.mkdir(TMP_DIR)
         with open(TMP_IMG_PATH, "wb") as f:
             f.write(img_bytes)
-        # image = image_load(io.BytesIO(img_bytes))
         image = image_load(TMP_IMG_PATH)
     return image
 
 
 def main():
 
-    download, pseudo_inception = True, False
     (
         inception,
         caption_model,
         idx2word,
         BOS_IDX,
         EOS_IDX,
-        EXCLUDE_FROM_PREDICTION,
-    ) = instantiate(download, pseudo_inception)
+        exclude_from_captions,
+    ) = instantiate(pseudo_inception = False)
 
     spinner_slot = st.empty()
     left, right = st.beta_columns((1, 1))
@@ -125,7 +136,7 @@ def main():
         img = load_image(img_loaded)
         is_loaded = True
         img, img_for_net, img_size_init = image_process(img)
-        image_slot.image(img, use_column_width=False, width=600)
+        image_slot.image(img, use_column_width=True, width=500)
         if new_image:
             load_status_slot.success("Image loaded!")
     MAX_CAPTION_LEN = st.sidebar.number_input(
@@ -173,7 +184,7 @@ def main():
                 inception,
                 caption_model,
                 idx2word,
-                EXCLUDE_FROM_PREDICTION,
+                exclude_from_captions,
                 (BOS_IDX,),
                 EOS_IDX,
                 N_CAPTIONS,
@@ -190,10 +201,7 @@ def main():
       """\
       <span style="color:black;font-size:8"><p>\
       made by\
-      <a style="color:mediumorchid" href="https://data.mail.ru/profile/a.nalitkin/">aleksandr</a>
-      &
-      <a style="color:crimson" href="https://data.mail.ru/profile/m.korotkov/">michael</a>
-      </p></span>
+      <a style="color:mediumorchid" href="https://www.linkedin.com/in/aleksandr-nalitkin/">aleksandr</a>
       """,
       unsafe_allow_html=True
     )
